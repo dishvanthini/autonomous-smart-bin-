@@ -1,0 +1,179 @@
+#include <Servo.h>
+#include <Wire.h>
+#include <Adafruit_TCS34725.h>
+
+const int lineSensorLeft = A0;  // Pin for the left line sensor
+const int lineSensorRight = A1; // Pin for the right line sensor
+
+Servo myservo;
+
+const int servoPin = A2;
+const int trigPinServo = 10;  // Renamed to avoid conflicts
+const int echoPinServo = 9;
+const int obstacleThresholdServo = 20; 
+
+const int motorLeftInput1 = 3;
+const int motorLeftInput2 = 4;
+const int motorLeftEnable = 2;
+
+const int motorRightInput1 = 5;
+const int motorRightInput2 = 6;
+const int motorRightEnable = 7;
+
+const int trigPinCar = 12;  // Renamed to avoid conflicts
+const int echoPinCar = 11;
+const int obstacleThresholdCar = 10;  
+// Color senso rgb
+#define TCS34725_ADDRESS 0x29
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
+
+void setup() {
+  Serial.begin(9600);
+
+  // Servo setup (Code 1)
+  myservo.attach(servoPin);
+  pinMode(trigPinServo, OUTPUT);
+  pinMode(echoPinServo, INPUT);
+
+  // Motor setup (Code 2)
+  pinMode(motorLeftInput1, OUTPUT);
+  pinMode(motorLeftInput2, OUTPUT);
+  pinMode(motorLeftEnable, OUTPUT);
+
+  pinMode(motorRightInput1, OUTPUT);
+  pinMode(motorRightInput2, OUTPUT);
+  pinMode(motorRightEnable, OUTPUT);
+
+  pinMode(trigPinCar, OUTPUT);
+  pinMode(echoPinCar, INPUT);
+
+  // Line sensor setup
+  pinMode(lineSensorLeft, INPUT);
+  pinMode(lineSensorRight, INPUT);
+
+  // Initialize color sensor
+  if (tcs.begin()) {
+    Serial.println("Found color sensor");
+  } else {
+    Serial.println("No TCS34725 found ... check your connections");
+    while (1);  // Halt the program if color sensor is not found
+  }
+}
+
+void loop() {
+  // Servo Logic (Code 1)
+  long durationServo = getDistance(trigPinServo, echoPinServo);
+  int distanceServo = durationServo * 0.034 / 2;
+
+  if (distanceServo < obstacleThresholdServo) {
+    Serial.println("Obstacle detected by servo logic!");
+    rotateTo90Degrees();  // Rotate servo to 0 degrees when obstacle detected
+  } else {
+    Serial.println("No obstacle detected by servo logic.");
+    rotateTo180Degrees(); // Rotate servo to 180 degrees if no obstacle
+  }
+
+  delay(500);
+
+  // Car Movement and Line Follower Logic (Code 2)
+  int lineLeft = digitalRead(lineSensorLeft);
+  int lineRight = digitalRead(lineSensorRight);
+
+  if (lineLeft == LOW && lineRight == LOW) {
+    Serial.println("Line detected by both sensors. Moving forward.");
+    moveCarForward();  // Move forward when both sensors detect the line
+  } else if (lineLeft == HIGH && lineRight == LOW) {
+    Serial.println("Line detected on right. Turning left.");
+    turnCarLeft();  // Turn left when right sensor detects the line
+
+  } else if (lineLeft == LOW && lineRight == HIGH) {
+    Serial.println("Line detected on left. Turning right.");
+    turnCarRight();  // Turn right left sensor detects the line
+
+  } else {
+    Serial.println("No line detected. Stopping car.");
+    stopCar();  // Stop the car if no line is detected
+  }
+
+  long durationCar = getDistance(trigPinCar, echoPinCar);
+  int distanceCar = durationCar * 0.034 / 2;
+
+  uint16_t clear, red, green, blue;
+  tcs.getRawData(&red, &green, &blue, &clear);
+
+  Serial.print("Clear: "); Serial.print(clear);
+  Serial.print(" Red: "); Serial.print(red);
+  Serial.print(" Green: "); Serial.print(green);
+  Serial.print(" Blue: "); Serial.println(blue);
+
+  if (distanceCar < obstacleThresholdCar) {
+    Serial.println("Obstacle detected by car logic!");
+    stopCar();
+  } else {
+    if ((red > green) && (red > blue)) {
+      Serial.println("Red detected by car logic!");
+      stopCar();
+    } else {
+      Serial.println("Moving car forward.");
+      moveCarForward();
+    }
+  }
+
+  delay(1000); 
+}
+
+long getDistance(int trigPin, int echoPin) {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  return pulseIn(echoPin, HIGH);
+}
+
+void rotateTo90Degrees() {
+  myservo.write(0);
+  delay(500);
+}
+
+void rotateTo180Degrees() {
+  myservo.write(180);
+  delay(500);
+}
+
+void stopCar() {
+  digitalWrite(motorLeftInput1, LOW);
+  digitalWrite(motorLeftInput2, LOW);
+  analogWrite(motorLeftEnable, 0);
+
+  digitalWrite(motorRightInput1, LOW);
+  digitalWrite(motorRightInput2, LOW);
+  analogWrite(motorRightEnable, 0);
+}
+
+void moveCarForward() {
+  digitalWrite(motorLeftInput1, HIGH);
+  digitalWrite(motorLeftInput2, LOW);
+  analogWrite(motorLeftEnable, 150); 
+
+  digitalWrite(motorRightInput1, LOW);
+  digitalWrite(motorRightInput2, HIGH);
+  analogWrite(motorRightEnable, 150); 
+}
+
+void turnCarLeft() {
+  digitalWrite(motorLeftInput1, LOW);
+  digitalWrite(motorLeftInput2, LOW);  
+  digitalWrite(motorRightInput1, LOW);
+  digitalWrite(motorRightInput2, HIGH);  
+  analogWrite(motorRightEnable, 150);  
+}
+
+void turnCarRight() {
+  digitalWrite(motorRightInput1, LOW);
+  digitalWrite(motorRightInput2, LOW);  
+  digitalWrite(motorLeftInput1, HIGH);
+  digitalWrite(motorLeftInput2, LOW);  
+  analogWrite(motorLeftEnable, 150); 
+}
